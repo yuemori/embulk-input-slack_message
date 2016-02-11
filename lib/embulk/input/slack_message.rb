@@ -8,12 +8,7 @@ module Embulk
       def self.transaction(config, &control)
         task = {
           'channels' => config.param('channels', :array),
-          'token' => config.param('token', :string, default: nil),
-          'latest' => config.param('latest', :string, default: Time.now.to_s),
-          'oldest' => config.param('oldest', :string, default: 0),
-          'inclusive' => config.param('inclusive', :string, default: 0),
-          'count' => config.param('count', :string, default: 100),
-          'unreads' => config.param('unreads', :string, default: 0)
+          'token' => config.param('token', :string)
         }
 
         resume(task, self.columns, 1, &control)
@@ -46,21 +41,26 @@ module Embulk
         token = task['token'] || ENV['SLACK_TOKEN']
         raise StandardError.new, 'slack token is not found' unless token
 
-        Slack.configure do |config|
-          config.token = token
-          config.options = {
-            latest: Time.parse(task["latest"]).to_f,
-            oldest: Time.parse(task["oldest"]).to_f,
-            inclusive: task['inclusive'],
-            count: task['count'],
-            unreads: task['unreads']
-          }
-        end
+        Slack.token = token
       end
 
       def run
-        @channels.each do |channel_name|
-          Slack.messages(channel_name).each do |message|
+        @channels.each do |channel|
+          latest = channel['latest'] ? Time.parse(channel['latest']).to_f : Time.now.to_f
+          oldest = channel['oldest'] ? Time.parse(channel['oldest']).to_f : 0
+          inclusive = channel['inclusive'] || 0
+          count = channel['count'] || 100
+          unreads = channel['unreads'] || 0
+
+          options = {
+            latest: latest,
+            oldest: oldest,
+            inclusive: inclusive,
+            count: count,
+            unreads: unreads
+          }
+
+          Slack.messages(channel['name'], channel['type'], options).each do |message|
             page_builder.add message
           end
         end

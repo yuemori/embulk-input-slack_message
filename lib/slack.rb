@@ -6,21 +6,17 @@ require 'slack/client'
 
 module Slack
   class << self
+    attr_accessor :token
     delegate :channels, :messages, :users, :options=, to: :client
-    delegate :token, :options, to: :configuration
 
     def configure(&block)
       yield configuration
     end
 
-    def configuration
-      @configuration ||= Struct.new(:token, :options).new
-    end
-
     private
 
     def client
-      @client = Slack::Client.new(token, options)
+      @client = Slack::Client.new(token)
     end
   end
 end
