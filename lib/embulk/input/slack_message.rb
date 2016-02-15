@@ -7,11 +7,26 @@ module Embulk
 
       def self.transaction(config, &control)
         task = {
-          'channels' => config.param('channels', :array),
-          'token' => config.param('token', :string)
+          'channel' => config.param('channel', :hash),
+          'token' => config.param('token', :string),
+          'repeat_at' => config.param('repeat_at', :long, default: 0)
         }
 
-        resume(task, self.columns, 1, &control)
+        yield(task, columns, 1)
+
+        channel = task['channel']
+        repeat_at = task['repeat_at']
+        latest = channel['latest'] ? Time.parse(channel['latest']).to_f : Time.now.to_f
+        oldest = channel['oldest'] ? Time.parse(channel['oldest']).to_f : 0
+
+        if repeat_at.zero?
+          time_diff = latest.to_i - oldest.to_i
+          channel = { oldest: Time.at(latest), latest: Time.at(latest + time_diff) }
+        else
+          channel = { oldest: oldest + repeat_at, latest: latest + repeat_at }
+        end
+
+        { channel: channel }
       end
 
       def self.columns
@@ -25,44 +40,49 @@ module Embulk
         ]
       end
 
-      def self.resume(task, columns, count, &control)
-        task_reports = yield(task, columns, count)
-
-        {oldest: Time.now.to_s}
-      end
-
       def self.guess(config)
-        { columns: Embulk::Schema.new(self.columns) }
+        channels = [
+          {
+            name: 'general',
+            type: 'channel',
+            latest: Time.now.strftime('%F %T'),
+            oldest: 0,
+            count: 100,
+            inclusive: 0,
+            unreads: 0
+          }
+        ]
+        { channel: channels.first, token: 'SLACK_API_TOKEN', repeat: 0, columns: Embulk::Schema.new(self.columns) }
       end
 
       def init
-        @channels = task["channels"]
+        @channel = task["channel"]
 
-        token = task['token'] || ENV['SLACK_TOKEN']
+        token = task['token']
         raise StandardError.new, 'slack token is not found' unless token
 
         Slack.token = token
       end
 
       def run
-        @channels.each do |channel|
-          latest = channel['latest'] ? Time.parse(channel['latest']).to_f : Time.now.to_f
-          oldest = channel['oldest'] ? Time.parse(channel['oldest']).to_f : 0
-          inclusive = channel['inclusive'] || 0
-          count = channel['count'] || 100
-          unreads = channel['unreads'] || 0
+        latest = @channel['latest'] ? Time.parse(@channel['latest']).to_f : Time.now.to_f
+        oldest = @channel['oldest'] ? Time.parse(@channel['oldest']).to_f : 0
+        inclusive = @channel['inclusive'] || 0
+        count = @channel['count'] || 100
+        unreads = @channel['unreads'] || 0
 
-          options = {
-            latest: latest,
-            oldest: oldest,
-            inclusive: inclusive,
-            count: count,
-            unreads: unreads
-          }
+        options = {
+          latest: latest,
+          oldest: oldest,
+          inclusive: inclusive,
+          count: count,
+          unreads: unreads
+        }
 
-          Slack.messages(channel['name'], channel['type'], options).each do |message|
-            page_builder.add message
-          end
+        p @channel
+
+        Slack.messages(@channel['name'], @channel['type'], options).each do |message|
+          page_builder.add message
         end
 
         page_builder.finish
