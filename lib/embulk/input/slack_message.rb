@@ -79,8 +79,6 @@ module Embulk
           unreads: unreads
         }
 
-        p @channel
-
         Slack.messages(@channel['name'], @channel['type'], options).each do |message|
           page_builder.add message
         end
